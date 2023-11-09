@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
@@ -6,9 +7,14 @@ from PIL import Image
 from PIL.ImageDraw import ImageDraw
 from scipy import interpolate
 
+from numpy import pi as 𝜋
+from numpy import e as 𝑒
+𝜏 = 2 * 𝜋
+𝑖 = 1j
+
 @dataclass
 class RingArm:
-    starting_ixponent: float  # Get it?
+    starting_radians: float
 
 class Side(Enum):
     LEFT = 0
@@ -19,15 +25,19 @@ class HorizontalLineException(ValueError):
 
 class ParallelLineException(ValueError):
     pass
-def angle_on_which_side_of_line(testee_angle: float, line_angle: float):
-    line_angle %= 2
 
-    if line_angle == 0:
+def 𝑒𝑖(multiplier: float):
+    return np.exp(𝑖 * multiplier)
+
+def angle_on_which_side_of_line(testee_radians: float, line_radians: float):
+    line_radians %= 𝜋
+
+    if np.isclose(line_radians, 0):
         raise HorizontalLineException("Dumbass this line is EXACTLY HORIZONTAL!!!! NOTHING is horizontal to it!!!")
-    if line_angle == testee_angle % 2:
+    if np.isclose(testee_radians % 𝜋, line_radians):
         raise ParallelLineException("Dumbass this line is EXACTLY THE SAME ANGLE AS THE ANGLE YOU'RE TESTING!!!")
 
-    spin_it = np.imag(1j ** (testee_angle + (2 - line_angle)))
+    spin_it = np.imag(𝑒𝑖(testee_radians + (𝜋 - line_radians)))
     if spin_it <= 0:
         return Side.LEFT
     else:
@@ -68,8 +78,8 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
     center_height = ring.height*0.5j
     center = width*0.5 + center_height
 
-    passes_diagonal = np.imag(1j ** (arm.starting_ixponent + (2 - ring.side_dividing_line_angle))) <= 0
-    vertical_evaluation = np.imag(1j ** (arm.starting_ixponent + 1))
+    passes_diagonal = np.imag(1j ** (arm.starting_radians + (2 - ring.side_dividing_line_angle))) <= 0
+    vertical_evaluation = np.imag(1j ** (arm.starting_radians + 1))
     passes_vertical_center = vertical_evaluation >= 0
     if passes_diagonal:
         start = center_height
@@ -81,16 +91,16 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
         start_from = 1 if np.sign(vertical_evaluation) < 0 else 3
         point_color[2] = 255
     else:
-        start_from = arm.starting_ixponent
+        start_from = arm.starting_radians
     point_color = tuple(point_color)
 
     precision = 48
     center_closeness = ring.inner_multiplier
     spiral_complexes = []
-    for ixponent in np.linspace(start_from, arm.starting_ixponent + 4 * ring.rotations, num=precision):
+    for ixponent in np.linspace(start_from, arm.starting_radians + 4 * ring.rotations, num=precision):
         progress = np.interp(
             ixponent,
-            [arm.starting_ixponent, arm.starting_ixponent + 4 * ring.rotations],
+            [arm.starting_radians, arm.starting_radians + 4 * ring.rotations],
             [0, 1],
         )
         distance = np.interp(
