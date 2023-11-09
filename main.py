@@ -1,15 +1,16 @@
-import math
+from dataclasses import dataclass
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
+
 import numpy as np
+import scipy
 from PIL import Image
 from PIL.ImageDraw import ImageDraw
-from scipy import interpolate
-
 # It would make more sense to use ASCII stuff here, but this is more fun
 from numpy import pi as 𝜋
-from numpy import e as 𝑒
+from scipy import interpolate
+
 𝜏 = 2 * 𝜋
 𝑖 = 1j
 
@@ -52,7 +53,7 @@ class Ring:
     outer_multiplier: float
     inner_multiplier: float
     ring_arms: Iterable[RingArm]
-    side_dividing_line_angle = 1.75
+    side_dividing_line_radians = 6 / 16 * 𝜏
 
     def generate(self):
         image = Image.new("RGBA", (self.width, self.height))
@@ -79,17 +80,16 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
     center_height = ring.height*0.5j
     center = width*0.5 + center_height
 
-    passes_diagonal = np.imag(1j ** (arm.starting_radians + (2 - ring.side_dividing_line_angle))) <= 0
-    vertical_evaluation = np.imag(1j ** (arm.starting_radians + 1))
-    passes_vertical_center = vertical_evaluation >= 0
-    if passes_diagonal:
+    side_of_diagonal = angle_on_which_side_of_line(arm.starting_radians, ring.side_dividing_line_radians)
+    side_of_vertical = angle_on_which_side_of_line(arm.starting_radians, 1 / 2 * 𝜋)
+    if side_of_diagonal == Side.LEFT:
         start = center_height
         point_color[1] = 255
     else:
         start = width + center_height
 
-    if passes_diagonal and passes_vertical_center:
-        start_from = 1 if np.sign(vertical_evaluation) < 0 else 3
+    if side_of_diagonal != side_of_vertical:
+        start_from = .25 * 𝜏 if side_of_vertical == Side.LEFT else .75 * 𝜏
         point_color[2] = 255
     else:
         start_from = arm.starting_radians
@@ -98,18 +98,19 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
     precision = 48
     center_closeness = ring.inner_multiplier
     spiral_complexes = []
-    for ixponent in np.linspace(start_from, arm.starting_radians + 4 * ring.rotations, num=precision):
-        progress = np.interp(
-            ixponent,
-            [arm.starting_radians, arm.starting_radians + 4 * ring.rotations],
+    for radians in np.linspace(start_from, arm.starting_radians + ring.rotations * 𝜏, num=precision):
+        progress = scipy.interpolate.interp1d(
+            [arm.starting_radians, arm.starting_radians + ring.rotations * 𝜏],
             [0, 1],
-        )
-        distance = np.interp(
-            progress,
+            fill_value="extrapolate"
+        )(radians)
+        distance = scipy.interpolate.interp1d(
             [0, 1],
             [largest_distance, largest_distance*center_closeness],
-        )
-        to_append = center + (1j ** ixponent) * distance
+            fill_value="extrapolate"
+        )(progress)
+        print(progress > 1 or progress < 0)
+        to_append = center + 𝑒𝑖(radians) * distance
         spiral_complexes.append(to_append)
 
     precision = 48
@@ -143,8 +144,8 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
 
     draw.line(
         hi := complexes_to_points([
-                            center + 1j ** ring.side_dividing_line_angle * ring.height / 2,
-                            center - 1j ** ring.side_dividing_line_angle * ring.height / 2,
+            center + 𝑒𝑖(ring.side_dividing_line_radians) * ring.height / 2,
+            center - 𝑒𝑖(ring.side_dividing_line_radians) * ring.height / 2,
                     ]
         ),
         fill=(0,0,0,255),
@@ -162,10 +163,9 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
             draw.point(complex_to_point(xy_complex), point_color)
         except IndexError:
             print(xy_complex)
-    draw.line((0,0, 128, 128), point_color, 999)
     return image
 
 if __name__ == "__main__":
     Ring(128 * 16, 32 * 16, 1.5, .75, .2, [
-        RingArm(n) for n in np.linspace(1/10, 1+1/10, 5+1, endpoint=False)
+        RingArm(n * 𝜏) for n in np.linspace(1 / 10, 1 + 1 / 10, 5 + 1, endpoint=False)
     ]).generate()
