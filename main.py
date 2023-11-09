@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable
 
@@ -53,7 +52,7 @@ class Ring:
     outer_multiplier: float
     inner_multiplier: float
     ring_arms: Iterable[RingArm]
-    side_dividing_line_radians = 6 / 16 * 𝜏
+    side_dividing_line_radians = 3 / 8 * 𝜏
 
     def generate(self):
         image = Image.new("RGBA", (self.width, self.height))
