@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, Any
 
 import numpy as np
 import scipy
@@ -54,28 +54,20 @@ class Ring:
     ring_arms: Iterable[RingArm]
     side_dividing_line_radians = 3 / 8 * 𝜏
 
-    def generate(self):
+    def generate(self) -> Image:
         image = Image.new("RGBA", (self.width, self.height))
 
-        colors = np.linspace(
-            np.array([0, 255, 0, 255]),
-            np.array([0, 0, 255, 255]),
-            len(self.ring_arms)
-        )
-        for index, ring_arm in enumerate(self.ring_arms):
-            color = colors[index*2%len(colors)]
-            image = add_an_arm(image, ring_arm, self, tuple(color.astype(int)))
+        for ring_arm in self.ring_arms:
+            image = add_an_arm(image, ring_arm, self)
 
-        image.show()
-        print("uh")
+        return image
 
 
-def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
+def add_an_arm(image: Image, arm: RingArm, ring: Ring):
     largest_distance = ring.height * ring.outer_multiplier * 0.5
     width, ring.height = image.size
     draw = ImageDraw(image)
 
-    point_color = [255, 0, 0, 255]
     center_height = ring.height*0.5j
     center = width*0.5 + center_height
 
@@ -83,16 +75,13 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
     side_of_vertical = angle_on_which_side_of_line(arm.starting_radians, 1 / 2 * 𝜋)
     if side_of_diagonal == Side.LEFT:
         start = center_height
-        point_color[1] = 255
     else:
         start = width + center_height
 
     if side_of_diagonal != side_of_vertical:
         start_from = .25 * 𝜏 if side_of_vertical == Side.LEFT else .75 * 𝜏
-        point_color[2] = 255
     else:
         start_from = arm.starting_radians
-    point_color = tuple(point_color)
 
     precision = 48
     center_closeness = ring.inner_multiplier
@@ -108,7 +97,6 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
             [largest_distance, largest_distance*center_closeness],
             fill_value="extrapolate"
         )(progress)
-        print(progress > 1 or progress < 0)
         to_append = center + 𝑒𝑖(radians) * distance
         spiral_complexes.append(to_append)
 
@@ -125,7 +113,7 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
     def unpack(xy_complex: complex) -> list[float]:
         return [np.real(xy_complex), np.imag(xy_complex)]
 
-    def complex_to_point(xy_complex: complex, astype: type = int) -> tuple[int, int]:
+    def complex_to_point(xy_complex: complex, astype: type = int) -> tuple[Any, Any]:
         out = list(np.array(unpack(xy_complex)).astype(astype))
         out[1] = image.height - out[1]
         return tuple(out)
@@ -134,37 +122,19 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
         return tuple([complex_to_point(xy_complex, astype=astype) for xy_complex in xy_complexes])
 
     points = complexes_to_points(complexes, astype=float)
-    tck, u = interpolate.splprep(tjtdtje := [
-        ih := list([float(x) for x, y in points]),
-        euynnyu := list([float(y) for x, y in points])
+    tck, u = interpolate.splprep([
+        list([float(x) for x, y in points]),
+        list([float(y) for x, y in points])
     ], s=0)
     unew = np.arange(0, 1.001, 0.001)
     out = interpolate.splev(unew, tck)
 
-    draw.line(
-        hi := complexes_to_points([
-            center + 𝑒𝑖(ring.side_dividing_line_radians) * ring.height / 2,
-            center - 𝑒𝑖(ring.side_dividing_line_radians) * ring.height / 2,
-                    ]
-        ),
-        fill=(0,0,0,255),
-        width=10
-    )
-
     for xy in zip(*out):
-        try:
             xy = tuple(np.array(xy).astype(int))
-            draw.point(xy, color)
-        except IndexError:
-            print(xy)
-    for xy_complex in complexes:
-        try:
-            draw.point(complex_to_point(xy_complex), point_color)
-        except IndexError:
-            print(xy_complex)
+            draw.point(xy, (0, 0, 0, 255))
     return image
 
 if __name__ == "__main__":
     Ring(128 * 16, 32 * 16, 1.5, .75, .2, [
         RingArm(n * 𝜏) for n in np.linspace(1 / 10, 1 + 1 / 10, 5 + 1, endpoint=False)
-    ]).generate()
+    ]).generate().show()
