@@ -3,6 +3,7 @@ import pytest
 
 from main import angle_on_which_side_of_line, Side, HorizontalLineException, ParallelLineException, 𝑒𝑖
 
+# It would make more sense to use ASCII stuff here, but this is more fun
 from numpy import pi as 𝜋
 from numpy import e as 𝑒
 𝜏 = 2 * 𝜋

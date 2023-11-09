@@ -7,6 +7,7 @@ from PIL import Image
 from PIL.ImageDraw import ImageDraw
 from scipy import interpolate
 
+# It would make more sense to use ASCII stuff here, but this is more fun
 from numpy import pi as 𝜋
 from numpy import e as 𝑒
 𝜏 = 2 * 𝜋
@@ -166,5 +167,5 @@ def add_an_arm(image: Image, arm: RingArm, ring: Ring, color):
 
 if __name__ == "__main__":
     Ring(128 * 16, 32 * 16, 1.5, .75, .2, [
-        RingArm(n) for n in np.linspace(4/10, 4+4/10, 5+1, endpoint=False)
+        RingArm(n) for n in np.linspace(1/10, 1+1/10, 5+1, endpoint=False)
     ]).generate()
