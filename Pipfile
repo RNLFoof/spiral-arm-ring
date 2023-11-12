@@ -7,9 +7,11 @@ name = "pypi"
 pillow = "*"
 numpy = "*"
 scipy = "*"
-pytest = "*"
+zsil = { editable = true, ref = "1226e5ed845657f3ac670c0b61db0caaf1c68b0a", git = "https://github.com/RNLFoof/zsil.git" }
+quads = "*"
 
 [dev-packages]
+pytest = "*"
 
 [requires]
 python_version = "3.11"
