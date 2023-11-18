@@ -335,7 +335,6 @@ if __name__ == "__main__":
         for starm_trim in np.arange(0, 5, 0.25):
             trims.append((spiral_trim, starm_trim))
     trims = sorted(trims, key=lambda x: x[0] + x[1])
-    # combined_image = Image.new("RGB", (6 * 32 * 4 * 6, 1 * 32 * 4 * 6))
     for multiplier in [6, 8]:
         for spiral_trim, starm_trim in trims:
             filename = os.path.join(
@@ -363,4 +362,3 @@ if __name__ == "__main__":
                             ).generate()
             print(f'Time: {t():.3f} seconds')
             ring.save(filename)
-    # combined_image.save("all.png")
