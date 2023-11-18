@@ -7,7 +7,7 @@ name = "pypi"
 pillow = "*"
 numpy = "*"
 scipy = "*"
-zsil = { editable = true, ref = "1226e5ed845657f3ac670c0b61db0caaf1c68b0a", git = "https://github.com/RNLFoof/zsil.git" }
+zsil = { editable = true, ref = "4b375cbbd2a958c329a1461a50e199ece54572e9", git = "https://github.com/RNLFoof/zsil.git" }
 quads = "*"
 
 [dev-packages]
