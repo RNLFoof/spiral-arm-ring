@@ -1,5 +1,6 @@
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from time import perf_counter
@@ -20,8 +21,8 @@ from zsil import cool_stuff
 𝑖 = 1j
 
 
-def unpack(xy_complex: complex) -> list[float]:
-    return [np.real(xy_complex), np.imag(xy_complex)]
+def unpack(xy_complex: complex) -> tuple[float, float]:
+    return np.real(xy_complex), np.imag(xy_complex)
 
 
 @dataclass
@@ -83,26 +84,57 @@ class Ring:
         for ring_arm in self.ring_arms:
             points += add_an_arm(image, ring_arm, self)
 
+        # Rounding makes it WAY faster
         usable_points = set(
             (round(x), round(y)) for (x, y) in points if 0 <= x < image.width and 0 <= y < image.height
         )
+
+        coordinates_to_go_over = set()
+        offsets = list(range(
+            int(np.floor(-self.stroke_width)),
+            int(np.ceil(self.stroke_width))
+        ))
+        for xy in usable_points:
+            xy = np.array(xy)
+            for x_offset in offsets:
+                for y_offset in offsets:
+                    offset = np.array((x_offset, y_offset))
+                    coordinates_to_go_over.add(tuple(xy + offset))
+        coordinates_to_go_over = set(
+            (round(x), round(y)) for (x, y) in coordinates_to_go_over if 0 <= x < image.width and 0 <= y < image.height
+        )
+        coordinates_to_go_over = list(coordinates_to_go_over)
+
 
         max_distance = 10
 
         def key(p: cool_stuff.GenerateFromNearestKeyParams):
             # if p.distance() > self.stroke_width:
             #     return None
+
+            center = np.array(image.size) / 2
+            me = np.array(p.coordinates)
+            closest = np.array([p.nearest_point.x, p.nearest_point.y])
+            distance_to_center = np.linalg.norm(center - me)
+
+            current_width = np.interp(
+                distance_to_center,
+                [0, p.image.width / 2],
+                [self.stroke_width, self.stroke_width * 3]
+            )
             color = round(
                 min(
-                    self.stroke_width,
+                    current_width,
                     p.distance()
-                ) / self.stroke_width * 255
+                ) / current_width * 255
             )
             return (
                 color, color, color, 255
             )
 
-        cool_stuff.generate_from_nearest(image, usable_points, key)
+        cool_stuff.generate_from_nearest(image, usable_points, key,
+                                         coordinates_to_go_over=coordinates_to_go_over
+                                         )
 
         return image
 
@@ -245,7 +277,7 @@ def star_tips(arm: RingArm, ring: Ring, origin_radians: float, closest_allowed: 
                         if testing_tip.origin_radians == expanding_tip.origin_radians:
                             continue
                         closest_maybe: list[quads.Point] = testing_tip.complex_lookup.nearest_neighbors(
-                            unpack(new_complex), count=1)
+                            quads.Point(*unpack(new_complex)), count=1)
                         if len(closest_maybe) != 0 and zsil.internal.point_distance(*unpack(new_complex),
                                                                                     closest_maybe[0].x, closest_maybe[
                                                                                         0].y) < closest_allowed:
@@ -319,8 +351,8 @@ def trim_summary():
 
 
 if __name__ == "__main__":
-    trim_summary()
-    exit()
+    # trim_summary()
+    # exit()
 
 
     @contextmanager
@@ -334,12 +366,13 @@ if __name__ == "__main__":
     for spiral_trim in np.arange(0, 5, 0.25):
         for starm_trim in np.arange(0, 5, 0.25):
             trims.append((spiral_trim, starm_trim))
+            break
     trims = sorted(trims, key=lambda x: x[0] + x[1])
-    for multiplier in [6, 8]:
+    for multiplier in [4, 6, 8]:
         for spiral_trim, starm_trim in trims:
             filename = os.path.join(
                 "trim_tests",
-                f"{str(float(spiral_trim)).replace('.', '_')}__{str(float(starm_trim)).replace('.', '_')}.png"
+                f""""{str(float(spiral_trim)).replace('.', '_')}__{str(float(starm_trim)).replace('.', '_')}.png"""
             )
             print(filename)
             # if os.path.exists(filename):
@@ -347,11 +380,12 @@ if __name__ == "__main__":
             # continue
             with catchtime() as t:
                 # multiplier = 4
+                extra_vertical_room = 2
                 ring = Ring(6 * 32 * multiplier,
-                            32 * multiplier,
+                            extra_vertical_room * 32 * multiplier,
                             3 / 5,
-                            0.9,
-                            0.6,
+                            0.9 / extra_vertical_room,
+                            0.5 / extra_vertical_room,
                             3 / 4 * multiplier,
                             2 * multiplier,
                             [
@@ -361,4 +395,6 @@ if __name__ == "__main__":
                             starm_trim * multiplier,
                             ).generate()
             print(f'Time: {t():.3f} seconds')
+            ring.show()
+            exit()
             ring.save(filename)
