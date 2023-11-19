@@ -78,15 +78,18 @@ class Ring:
     side_dividing_line_radians = 3 / 8 * 𝜏
 
     def generate(self) -> Image:
-        image = Image.new("RGBA", (self.width, self.height))
+        image = Image.new("L", (self.width, self.height), 255)
         points = []
 
         for ring_arm in self.ring_arms:
             points += add_an_arm(image, ring_arm, self)
 
-        # Rounding makes it WAY faster
+        # Rounding makes it about 2x faster, but it's so much cleaner without...
         usable_points = set(
-            (round(x), round(y)) for (x, y) in points if 0 <= x < image.width and 0 <= y < image.height
+            (x, y)  # 34s
+            # (round(x, 1), round(y, 1))  # 16s
+            # (round(x, 1), round(y, 1))  # 35s
+            for (x, y) in points if 0 <= x < image.width and 0 <= y < image.height
         )
 
         coordinates_to_go_over = set()
@@ -128,9 +131,7 @@ class Ring:
                     p.distance()
                 ) / current_width * 255
             )
-            return (
-                color, color, color, 255
-            )
+            return color
 
         cool_stuff.generate_from_nearest(image, usable_points, key,
                                          coordinates_to_go_over=coordinates_to_go_over
