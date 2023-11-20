@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "9989633e1bb24a3b4147c27937e7c85cac651794d4e6c51d7ed23549db6861a3"
+            "sha256": "87379f2c4eaf0f03910761fa726170d19341ecf94bbfa6dac962d896f925ab0c"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -142,7 +142,7 @@
                 "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44",
                 "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
             ],
-            "markers": "sys_platform == 'win32'",
+            "markers": "platform_system == 'Windows'",
             "version": "==0.4.6"
         },
         "docutils": {
@@ -355,11 +355,11 @@
         },
         "pygments": {
             "hashes": [
-                "sha256:cd0c46944b2551af02ecc15961050182ea120d3895000e2676160820f3421527",
-                "sha256:edaa0fa2453d055d0ac94449d1f73ec7bc52c5e318204da1377c1392978c4a8d"
+                "sha256:1b37f1b1e1bff2af52ecaf28cc601e2ef7077000b227a0675da25aef85784bc4",
+                "sha256:e45a0e74bf9c530f564ca81b8952343be986a29f6afe7f5ad95c5f06b7bdf5e8"
             ],
             "markers": "python_version >= '3.7'",
-            "version": "==2.17.0"
+            "version": "==2.17.1"
         },
         "quads": {
             "hashes": [
@@ -495,6 +495,14 @@
             "markers": "python_version >= '3.9'",
             "version": "==1.1.9"
         },
+        "tqdm": {
+            "hashes": [
+                "sha256:d302b3c5b53d47bce91fea46679d9c3c6508cf6332229aa1e7d8653723793386",
+                "sha256:d88e651f9db8d8551a62556d3cff9e3034274ca5d66e93197cf2490e2dcb69c7"
+            ],
+            "index": "pypi",
+            "version": "==4.66.1"
+        },
         "urllib3": {
             "hashes": [
                 "sha256:55901e917a5896a349ff771be919f8bd99aff50b79fe58fec595eb37bbc56bb3",
@@ -513,7 +521,7 @@
         "zsil": {
             "editable": true,
             "git": "https://github.com/RNLFoof/zsil.git",
-            "ref": "604fdaa1e95c12dc8a167e74a03a4fcf543e60e0"
+            "ref": "567072ad2d0f433f38607582da9a2d1a3dbc2b07"
         }
     },
     "develop": {
@@ -522,7 +530,7 @@
                 "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44",
                 "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
             ],
-            "markers": "sys_platform == 'win32'",
+            "markers": "platform_system == 'Windows'",
             "version": "==0.4.6"
         },
         "iniconfig": {
