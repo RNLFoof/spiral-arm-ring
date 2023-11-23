@@ -1,5 +1,4 @@
 import os
-import os
 import re
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -33,13 +32,15 @@ CanBecomePoint = Union[np.array, complex, tuple[float, float], quads.Point]
 
 
 class PointAndMetadataThereof:
+    flavor: "PointFlavor"  # Added by bundle
 
     def __init__(self, create_from: CanBecomePoint, arm: Optional["RingArm"] = None, ring: "Ring" = None,
                  bundle: Optional["Bundle"] = None):
         if isinstance(create_from, np.ndarray):
             self.as_array = create_from
         elif isinstance(create_from, complex):
-            self.as_array = np.array(unpack(create_from))
+            unpacked = unpack(create_from)
+            self.as_array = np.array((unpacked[0], -unpacked[1]))
         elif isinstance(create_from, tuple):
             self.as_array = np.array(create_from)
         elif isinstance(create_from, quads.Point):
@@ -55,6 +56,7 @@ class PointAndMetadataThereof:
             self.ring = self.arm.ring
         if self.ring is None:
             raise Exception("You need to provide an arm or a ring! (preferably an arm)")
+
 
     def ill_make_a_point_outta_you(self, potential_point: Union[Self | CanBecomePoint]):
         if isinstance(potential_point, PointAndMetadataThereof):
@@ -95,35 +97,63 @@ class PointAndMetadataThereof:
         return zsil.internal.point_direction(*self.as_tuple, *self.ring.center.as_tuple)
 
 
+class PointFlavor(Enum):
+    CENTER = 0,
+    CORNER = 1,
+    LEFT_EDGE = 2,
+    RIGHT_EDGE = 3
+
+
+CENTER = PointFlavor.CENTER
+CORNER = PointFlavor.CORNER
+LEFT_EDGE = PointFlavor.LEFT_EDGE
+RIGHT_EDGE = PointFlavor.RIGHT_EDGE
+
 @dataclass
 class PointBundle:
-    center: PointAndMetadataThereof
-    corner: PointAndMetadataThereof
-    close_edge: PointAndMetadataThereof
-    far_edge: PointAndMetadataThereof
+    points: dict[PointFlavor, PointAndMetadataThereof]
+
+    @classmethod
+    def from_center_point(cls, center_point: PointAndMetadataThereof, towards: CanBecomePoint) -> Self:
+        ring = center_point.ring
+        towards = center_point.ill_make_a_point_outta_you(towards)
+        direction_towards_towards = zsil.internal.point_direction(*center_point.as_tuple, *towards.as_tuple)
+        current_arm_width = arm_width_at(ring, center_point)
+        corner_offset_distance = np.interp(
+            center_point.distance_to_center,
+            [0, ring.width / 2],
+            [current_arm_width, 0]
+        )
+        bundle = PointBundle({
+            CENTER: center_point,
+            CORNER: center_point + 𝑒𝑖(center_point.direction_to_center) * corner_offset_distance,
+            LEFT_EDGE: center_point + -𝑒𝑖((direction_towards_towards + 𝜋 / 2) % 𝜏) * current_arm_width,
+            RIGHT_EDGE: center_point + -𝑒𝑖((direction_towards_towards - 𝜋 / 2) % 𝜏) * current_arm_width,
+        })
+        return bundle
 
     def __post_init__(self):
-        for point in self.points():
+        for flavor, point in self.points.items():
             point.bundle = self
+            point.flavor = flavor
+
+    def __getitem__(self, item: PointFlavor):
+        return self.points[item]
+
+    def __iter__(self):
+        for point in self.points.values():
+            yield point
 
     def prepare_to_launch(self):
-        for point in self.points():
+        for point in self.points.values():
             point.prepare_to_launch()
         return [
             self.current_arm_width
         ]
 
-    def points(self):
-        return [
-            self.center,
-            self.corner,
-            self.close_edge,
-            self.far_edge,
-        ]
-
     @cached_property
     def current_arm_width(self) -> float:
-        return arm_width_at(self.center.ring, self.center)
+        return arm_width_at(self[CENTER].ring, self[CENTER])
 
 
 def arm_width_at(ring: "Ring", point: PointAndMetadataThereof) -> float:
@@ -141,17 +171,18 @@ class RingArm:
 
     def __post_init__(self):
         self._point_bundles: list[PointBundle] = []
-        self._point_bundle_lookup: dict[tuple[float, float], PointBundle] = {}
+        self._generic_bundle_lookup: dict[tuple[float, float], PointBundle] = {}
+        self._specific_bundle_lookup: dict[PointFlavor, dict[tuple[float, float], PointBundle]] = {}
+        self._specific_bundle_quadtree: dict[PointFlavor, quads.QuadTree] = {}
         # self.ensure_point_bundles() would be here but is instead called by Ring after it plugs itself in
 
-    def corner_points(self):
+    def point_bundles(self):
         return self._point_bundles
 
     def point_bundle_lookup(self):
-        return self._point_bundle_lookup
+        return self._generic_bundle_lookup
 
-    @cached_property
-    def center_points(self) -> list[PointAndMetadataThereof]:
+    def ensure_bundles(self):
         largest_distance = self.ring.height * self.ring.outer_multiplier * 0.5
         shortest_distance = self.ring.height * self.ring.inner_multiplier * 0.5
 
@@ -235,36 +266,34 @@ class RingArm:
 
             # The length of this proportionately affects how long the process takes
             # Which seems dumb. Like. it's all in a quadtree. shouldn't that be basically unaffected by size?
-            # Maybe it like, skips layers if only use cell is used or something.
+            # Maybe it like, skips layers if only one cell is used or something.
             unew = np.linspace(0, 1, self.ring.width)
             out_sideways = interpolate.splev(unew, tck)
             out_tuples += zip(*out_sideways)
-            out = [PointAndMetadataThereof(point, arm=self) for point in out_tuples]
 
-        return out
+            previous = self.ring.center
+            for center_point in tqdm(out_tuples, "ensuring point bundles"):
+                center_point = PointAndMetadataThereof(center_point, arm=self)
+                bundle = PointBundle.from_center_point(center_point, previous)
+                previous = center_point
+
+                self._point_bundles.append(bundle)
+                for point in bundle:
+                    self._generic_bundle_lookup[point.as_tuple] = bundle
+                    self._specific_bundle_lookup.setdefault(point.flavor, {})
+                    self._specific_bundle_lookup[point.flavor][point.as_tuple] = bundle
+                    self._specific_bundle_quadtree.setdefault(point.flavor, quads.QuadTree(self.ring.center.as_tuple,
+                                                                                           *self.ring.size.as_tuple))
+                    try:
+                        self._specific_bundle_quadtree[point.flavor].insert(point.as_tuple, bundle)
+                    except ValueError:
+                        pass
 
     def prepare_to_launch(self):
-        for center_point in tqdm(self.center_points, "ensuring point bundles"):
-            current_arm_width = arm_width_at(self.ring, center_point)
-            corner_offset_distance = np.interp(
-                center_point.distance_to_center,
-                [0, self.ring.width / 2],
-                [current_arm_width, 0]
-            )
-            corner_point = center_point + 𝑒𝑖(center_point.direction_to_center) * corner_offset_distance
-            close_edge_point = center_point + 𝑒𝑖(center_point.direction_to_center) * current_arm_width
-            far_edge_point = center_point + 𝑒𝑖(center_point.direction_to_center + 𝜋) * current_arm_width
-            bundle = PointBundle(
-                corner_point,
-                corner_point,
-                close_edge_point,
-                far_edge_point
-            )
+        self.ensure_bundles()
+        for bundle in self.point_bundles():
             bundle.prepare_to_launch()
-            self._point_bundles.append(bundle)
-            for point in bundle.points():
-                self._point_bundle_lookup[point.as_tuple] = bundle
-        return
+            return
 
 
 class Side(Enum):
@@ -329,12 +358,35 @@ class Ring:
     def generate(self) -> Image:
         self.prepare_to_launch()
 
-        image = Image.new("L", (self.width, self.height), 128)
+        image = Image.new("L", (self.width, self.height), 255)
         points = []
 
         for ring_arm in self.ring_arms:
             for coordinates in ring_arm.point_bundle_lookup():
                 points.append(coordinates)
+
+        all_generic_bundle_lookup: dict[tuple[float, float], PointBundle] = {}
+        all_specific_bundle_lookup: dict[PointFlavor, dict[tuple[float, float], PointBundle]] = {}
+        for arm in self.ring_arms:
+            all_generic_bundle_lookup = {**all_generic_bundle_lookup, **arm.point_bundle_lookup()}
+            for flavor in PointFlavor:
+                all_specific_bundle_lookup.setdefault(flavor, {})
+                all_specific_bundle_lookup[flavor] = {
+                    **all_specific_bundle_lookup[flavor],
+                    **arm._specific_bundle_lookup[flavor]
+                }
+
+        all_specific_point_quadtree = {}
+        for flavor in PointFlavor:
+            ows = 0
+            all_specific_point_quadtree[flavor] = quads.QuadTree(self.center.as_tuple, *self.size.as_tuple)
+            for bundle in all_specific_bundle_lookup[flavor].values():
+                try:
+                    point = bundle[flavor]
+                    all_specific_point_quadtree[flavor].insert(point.as_tuple, point)
+                except ValueError:
+                    ows += 1
+                    print(f"OW {flavor} {ows}/{len(all_specific_bundle_lookup[flavor])}")
 
         # Rounding to int makes it about 2x faster, but it's so much cleaner without...
         # Rounding is separate to prevent rounding it OOB
@@ -343,14 +395,14 @@ class Ring:
         #     (x, y) for (x, y) in tqdm(points, "rounding usable points")
         # )
         usable_points = set(
-            (x, y) for (x, y) in tqdm(points, "trimming usable points") if
+            (x, y) for (x, y) in tqdm(all_specific_bundle_lookup[CORNER], "trimming usable points") if
             0 <= x < image.width and 0 <= y < image.height
         )
         # TODO Move trimming stuff out of range into zsil?
 
         coordinates_to_go_over = set()
-        rounded_usable_points = set((round(x), round(y)) for x, y in usable_points)
-        for xy in tqdm(rounded_usable_points, "adding offsets"):
+        rounded_center_points = set((round(x), round(y)) for x, y in all_specific_bundle_lookup[CENTER])
+        for xy in tqdm(rounded_center_points, "adding offsets"):
             # Doing just the edges because, since this is continuous, stuff adjacent should be gotten by points adjacent
             xy = PointAndMetadataThereof(xy, ring=self)
             offset_amount = int(np.ceil(arm_width_at(self, xy)))
@@ -369,22 +421,34 @@ class Ring:
         )
         coordinates_to_go_over = list(coordinates_to_go_over)
 
-        all_point_bundle_lookup = {}
-        for arm in self.ring_arms:
-            all_point_bundle_lookup = {**all_point_bundle_lookup, **arm.point_bundle_lookup()}
-
         def key(p: cool_stuff.GenerateFromNearestKeyParams):
             me = PointAndMetadataThereof(p.coordinates, ring=self)
-            closest = PointAndMetadataThereof(p.nearest_point, ring=self)
-            if closest.as_tuple in all_point_bundle_lookup:
-                bundle = all_point_bundle_lookup[closest.as_tuple]
-            else:
-                raise Exception("WHAT")
+            corner = PointAndMetadataThereof(p.nearest_point, ring=self)
 
-            sloping_towards_center = me.distance_to_center < bundle.corner.distance_to_center
-            edge_point = bundle.close_edge if sloping_towards_center else bundle.far_edge
-            distance_to_corner = np.linalg.norm(bundle.corner.as_array - me.as_array)
-            distance_from_corner_to_edge = np.linalg.norm(edge_point.as_array - bundle.corner.as_array)
+            #
+            # if np.linalg.norm(me.as_array - closest.as_array) > 2:
+            #     return None
+            # if closest.as_tuple == bundle[LEFT_EDGE].as_tuple:
+            #     return 0
+            # if closest.as_tuple == bundle[RIGHT_EDGE].as_tuple:
+            #     return 64
+            # if closest.as_tuple == bundle[CORNER].as_tuple:
+            #     return 192
+            # if closest.as_tuple == bundle.center.as_tuple:
+            #     return 255
+            # return None
+
+            left_edge: PointAndMetadataThereof = all_specific_point_quadtree[LEFT_EDGE] \
+                .nearest_neighbors(me.as_tuple, 1)[0] \
+                .data
+            right_edge: PointAndMetadataThereof = \
+            all_specific_point_quadtree[RIGHT_EDGE].nearest_neighbors(me.as_tuple, 1)[0] \
+                .data
+            left_edge_distance = np.linalg.norm(me.as_array - left_edge.as_array)
+            right_edge_distance = np.linalg.norm(me.as_array - right_edge.as_array)
+            edge = left_edge if left_edge_distance < right_edge_distance else right_edge
+            distance_to_corner = np.linalg.norm(corner.as_array - me.as_array)
+            distance_from_corner_to_edge = np.linalg.norm(edge.as_array - corner.as_array)
 
             color = round(np.interp(
                 distance_to_corner,
@@ -395,7 +459,7 @@ class Ring:
 
         usable_points = list(usable_points)
 
-        key(GenerateFromNearestKeyParams(image, (0, 0), list(all_point_bundle_lookup)[0]))
+        key(GenerateFromNearestKeyParams(image, (0, 0), list(all_generic_bundle_lookup)[0]))
 
         cool_stuff.generate_from_nearest(image, usable_points, key,
                                          coordinates_to_go_over=coordinates_to_go_over
@@ -428,7 +492,7 @@ def star_tips(arm: RingArm, ring: Ring, origin_radians: float, closest_allowed: 
             self.complex_lookup.insert(unpack(new_complex), new_complex)
 
     tips: list[Tip] = []
-    for reverse in [-1, 1]:
+    for reverse in [1]:  # [-1, 1]:
         currently_expanding_tips: list[Tip] = []
         for index in range(5):
             tip = Tip(origin_radians + 𝜏 / 5 * index)
@@ -561,7 +625,7 @@ if __name__ == "__main__":
                 ring = Ring(6 * 32 * multiplier,
                             extra_vertical_room * 32 * multiplier,
                             3 / 5,
-                            0.9 / extra_vertical_room,
+                            0.9 / extra_vertical_room * 2,
                             0.5 / extra_vertical_room,
                             3 / 4 * multiplier,
                             2 * multiplier,
