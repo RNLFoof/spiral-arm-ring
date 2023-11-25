@@ -16,9 +16,9 @@ from PIL.ImageDraw import ImageDraw
 # It would make more sense to use ASCII stuff here, but this is more fun
 from numpy import pi as 𝜋
 from scipy import interpolate
+from shapely.geometry import LineString
 from tqdm import tqdm
 from zsil import cool_stuff
-from zsil.cool_stuff import GenerateFromNearestKeyParams
 
 𝜏 = 2 * 𝜋
 𝑖 = 1j
@@ -46,7 +46,7 @@ class PointAndMetadataThereof:
         elif isinstance(create_from, quads.Point):
             self.as_array = np.array((create_from.x, create_from.y))
         else:
-            raise ValueError("You want me to make this out of WHAT")
+            raise ValueError(f"You want me to make this out of WHAT (got a {type(create_from)})")
 
         self.arm = arm
         self.ring = ring
@@ -63,12 +63,34 @@ class PointAndMetadataThereof:
             return potential_point
         return PointAndMetadataThereof(potential_point, ring=self.ring)
 
+    def __str__(self):
+        return f"Point & Meta @ {self.as_tuple}"
+
+    def __repr__(self):
+        return str(self)
+
     def __add__(self, other: Union[Self | CanBecomePoint]) -> Self:
         return PointAndMetadataThereof(self.as_array + self.ill_make_a_point_outta_you(other).as_array,
                                        ring=self.ring)
 
+    def __sub__(self, other: Union[Self | CanBecomePoint]) -> Self:
+        return PointAndMetadataThereof(self.as_array - self.ill_make_a_point_outta_you(other).as_array,
+                                       ring=self.ring)
+
+    def __mul__(self, other: float) -> Self:
+        return PointAndMetadataThereof(self.as_array * other, ring=self.ring)
+
     def __truediv__(self, other: float) -> Self:
         return PointAndMetadataThereof(self.as_array / other, ring=self.ring)
+
+    def __eq__(self, other: Self | CanBecomePoint) -> bool:
+        return self.as_tuple == self.ill_make_a_point_outta_you(other).as_tuple
+
+    def __getitem__(self, item: int) -> float:
+        return self.as_tuple[item]
+
+    def __iter__(self):
+        return self.as_tuple
 
     def prepare_to_launch(self):
         return [
@@ -76,6 +98,14 @@ class PointAndMetadataThereof:
             self.distance_to_center,
             self.direction_to_center
         ]
+
+    @property
+    def x(self):
+        return self[0]
+
+    @property
+    def y(self):
+        return self[1]
 
     @cached_property
     def as_tuple(self) -> tuple[float, float]:
@@ -87,6 +117,10 @@ class PointAndMetadataThereof:
     @cached_property
     def as_complex(self):
         return complex(*self.as_tuple)
+
+    def distance_to(self, other: Self | CanBecomePoint) -> float:
+        other = self.ill_make_a_point_outta_you(other)
+        return np.linalg.norm((other - self).as_array)
 
     @cached_property
     def distance_to_center(self) -> float:
@@ -118,17 +152,17 @@ class PointBundle:
         ring = center_point.ring
         towards = center_point.ill_make_a_point_outta_you(towards)
         direction_towards_towards = zsil.internal.point_direction(*center_point.as_tuple, *towards.as_tuple)
-        current_arm_width = arm_width_at(ring, center_point)
+        current_arm_radius = arm_radius_at(ring, center_point)
         corner_offset_distance = np.interp(
-            center_point.distance_to_center,
+            (center_point.distance_to_center),
             [0, ring.width / 2],
-            [current_arm_width, 0]
-        )
+            [1, 0]
+        ) ** 2 * current_arm_radius
         bundle = PointBundle({
             CENTER: center_point,
             CORNER: center_point + 𝑒𝑖(center_point.direction_to_center) * corner_offset_distance,
-            LEFT_EDGE: center_point + -𝑒𝑖((direction_towards_towards + 𝜋 / 2) % 𝜏) * current_arm_width,
-            RIGHT_EDGE: center_point + -𝑒𝑖((direction_towards_towards - 𝜋 / 2) % 𝜏) * current_arm_width,
+            LEFT_EDGE: center_point + -𝑒𝑖((direction_towards_towards + 𝜋 / 2) % 𝜏) * current_arm_radius,
+            RIGHT_EDGE: center_point + -𝑒𝑖((direction_towards_towards - 𝜋 / 2) % 𝜏) * current_arm_radius,
         })
         return bundle
 
@@ -148,15 +182,79 @@ class PointBundle:
         for point in self.points.values():
             point.prepare_to_launch()
         return [
-            self.current_arm_width
+            self.current_arm_radius
         ]
 
     @cached_property
-    def current_arm_width(self) -> float:
-        return arm_width_at(self[CENTER].ring, self[CENTER])
+    def current_arm_radius(self) -> float:
+        return arm_radius_at(self[CENTER].ring, self[CENTER])
+
+    # https://stackoverflow.com/a/44774147
+    @staticmethod
+    def intersection_stolen(center, radius, p1, p2):
+
+        """ find the two points where a secant intersects a circle """
+
+        dx, dy = p2.x - p1.x, p2.y - p1.y
+
+        a = dx ** 2 + dy ** 2
+        b = 2 * (dx * (p1.x - center.x) + dy * (p1.y - center.y))
+        c = (p1.x - center.x) ** 2 + (p1.y - center.y) ** 2 - radius ** 2
+
+        discriminant = b ** 2 - 4 * a * c
+        assert (discriminant > 0), 'Not a secant!'
+
+        t1 = (-b + discriminant ** 0.5) / (2 * a)
+        t2 = (-b - discriminant ** 0.5) / (2 * a)
+
+        return (dx * t1 + p1.x, dy * t1 + p1.y), (dx * t2 + p1.x, dy * t2 + p1.y)
+
+    def circle_intersection(self, pixel_coordinates: CanBecomePoint) -> None | PointAndMetadataThereof:
+        pixel_coordinates = self[CENTER].ill_make_a_point_outta_you(pixel_coordinates)
+        if self[CENTER] == self[CORNER]:
+            return self[CENTER].ill_make_a_point_outta_you((self.current_arm_radius, 0))
+        if self[CENTER].distance_to(pixel_coordinates) == self.current_arm_radius:
+            return pixel_coordinates
+        if self[CENTER].distance_to(pixel_coordinates) > self.current_arm_radius:
+            return None
+
+        try:
+            intersections = self.intersection_stolen(self[CENTER], self.current_arm_radius, self[CORNER],
+                                                     pixel_coordinates)
+        except AssertionError:
+            return None
+
+        # If we want the point generated by casting a ray from the corner to the pixel, then we want the point that's
+        # closer to the pixel than it is to the corner
+        intersection = sorted(intersections,
+                              key=lambda x: np.linalg.norm((pixel_coordinates - x).as_array) > np.linalg.norm(
+                                  (self[CORNER] - x).as_array))[0]
+
+        return self[CENTER].ill_make_a_point_outta_you(intersection)
+        if isinstance(intersection, LineString):
+            intersection = intersection.coords[0] if len(intersection.coords) else None
+        if intersection is None:
+            return None
+        return self[CENTER].ill_make_a_point_outta_you((intersection.x, intersection.y))
+
+    def corner_color(self, pixel_coordinates: CanBecomePoint, extra_corner_bits: float = 0):
+        pixel_coordinates = self[CENTER].ill_make_a_point_outta_you(pixel_coordinates)
+        if pixel_coordinates == self[CORNER]:
+            return 0
+        intersection = self.circle_intersection(pixel_coordinates)
+        if intersection is None:
+            return None
+
+        color = scipy.interpolate.interp1d(
+            [0, intersection.distance_to(self[CORNER])],
+            [-extra_corner_bits, 255],
+            fill_value=(0, 255),
+            bounds_error=False
+        )(pixel_coordinates.distance_to(self[CORNER]))
+        return round(float(max(0, color)))
 
 
-def arm_width_at(ring: "Ring", point: PointAndMetadataThereof) -> float:
+def arm_radius_at(ring: "Ring", point: PointAndMetadataThereof) -> float:
     return np.interp(
         point.distance_to_center,
         [0, ring.width / 2],
@@ -267,7 +365,7 @@ class RingArm:
             # The length of this proportionately affects how long the process takes
             # Which seems dumb. Like. it's all in a quadtree. shouldn't that be basically unaffected by size?
             # Maybe it like, skips layers if only one cell is used or something.
-            unew = np.linspace(0, 1, self.ring.width)
+            unew = np.linspace(0, 1, self.ring.width * 2)
             out_sideways = interpolate.splev(unew, tck)
             out_tuples += zip(*out_sideways)
 
@@ -378,15 +476,13 @@ class Ring:
 
         all_specific_point_quadtree = {}
         for flavor in PointFlavor:
-            ows = 0
             all_specific_point_quadtree[flavor] = quads.QuadTree(self.center.as_tuple, *self.size.as_tuple)
             for bundle in all_specific_bundle_lookup[flavor].values():
                 try:
                     point = bundle[flavor]
                     all_specific_point_quadtree[flavor].insert(point.as_tuple, point)
                 except ValueError:
-                    ows += 1
-                    print(f"OW {flavor} {ows}/{len(all_specific_bundle_lookup[flavor])}")
+                    pass
 
         # Rounding to int makes it about 2x faster, but it's so much cleaner without...
         # Rounding is separate to prevent rounding it OOB
@@ -395,7 +491,9 @@ class Ring:
         #     (x, y) for (x, y) in tqdm(points, "rounding usable points")
         # )
         usable_points = set(
-            (x, y) for (x, y) in tqdm(all_specific_bundle_lookup[CORNER], "trimming usable points") if
+            (x, y) for (x, y) in
+            tqdm(list(all_specific_bundle_lookup[CORNER].keys()) + list(all_specific_bundle_lookup[CORNER].keys()),
+                 "trimming usable points") if
             0 <= x < image.width and 0 <= y < image.height
         )
         # TODO Move trimming stuff out of range into zsil?
@@ -405,7 +503,7 @@ class Ring:
         for xy in tqdm(rounded_center_points, "adding offsets"):
             # Doing just the edges because, since this is continuous, stuff adjacent should be gotten by points adjacent
             xy = PointAndMetadataThereof(xy, ring=self)
-            offset_amount = int(np.ceil(arm_width_at(self, xy)))
+            offset_amount = int(np.ceil(arm_radius_at(self, xy))) + 1
             minimum_offset = -offset_amount
             maximum_offset = offset_amount
             offsets = list(range(minimum_offset, maximum_offset))
@@ -422,6 +520,16 @@ class Ring:
         coordinates_to_go_over = list(coordinates_to_go_over)
 
         def key(p: cool_stuff.GenerateFromNearestKeyParams):
+            center = PointAndMetadataThereof(p.nearest_points[0], ring=self)
+            return min(
+                255 if (value := all_generic_bundle_lookup[
+                    center.ill_make_a_point_outta_you(nearest_point).as_tuple
+                ].corner_color(
+                    p.coordinates,
+                    extra_corner_bits=0
+                )) is None else value
+                for nearest_point in p.nearest_points
+            )
             me = PointAndMetadataThereof(p.coordinates, ring=self)
             corner = PointAndMetadataThereof(p.nearest_point, ring=self)
 
@@ -459,10 +567,11 @@ class Ring:
 
         usable_points = list(usable_points)
 
-        key(GenerateFromNearestKeyParams(image, (0, 0), list(all_generic_bundle_lookup)[0]))
+        #key(GenerateFromNearestKeyParams(image, (0, 0), list(all_generic_bundle_lookup)[0]))
 
         cool_stuff.generate_from_nearest(image, usable_points, key,
-                                         coordinates_to_go_over=coordinates_to_go_over
+                                         coordinates_to_go_over=coordinates_to_go_over,
+                                         nearest_count=10
                                          )
 
         return image
@@ -492,7 +601,7 @@ def star_tips(arm: RingArm, ring: Ring, origin_radians: float, closest_allowed: 
             self.complex_lookup.insert(unpack(new_complex), new_complex)
 
     tips: list[Tip] = []
-    for reverse in [1]:  # [-1, 1]:
+    for reverse in [-1, 1]:
         currently_expanding_tips: list[Tip] = []
         for index in range(5):
             tip = Tip(origin_radians + 𝜏 / 5 * index)
@@ -625,7 +734,7 @@ if __name__ == "__main__":
                 ring = Ring(6 * 32 * multiplier,
                             extra_vertical_room * 32 * multiplier,
                             3 / 5,
-                            0.9 / extra_vertical_room * 2,
+                            0.9 / extra_vertical_room,
                             0.5 / extra_vertical_room,
                             3 / 4 * multiplier,
                             2 * multiplier,
